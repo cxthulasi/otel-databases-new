@@ -1,0 +1,40 @@
+receivers:
+  jmx:
+    jar_path: /opt/otelcol-contrib/opentelemetry-java-contrib-jmx-metrics.jar
+    endpoint: localhost:7199
+    target_system: cassandra,jvm
+    collection_interval: 60s
+    username: cassandra
+    password: cassandra
+    properties:
+      otel.resource.attributes: endpoint=localhost:7199
+
+processors:
+  batch:
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+    timeout: 1s
+  resourcedetection:
+    detectors: [system]
+    system:
+      hostname_sources: [os]
+  resource:
+    attributes:
+      - key: service.name
+        value: cassandra
+        action: upsert
+
+exporters:
+  otlp:
+    endpoint: "ingress.coralogix.com:443"
+    headers:
+      Authorization: "Bearer ${CORALOGIX_API_KEY}"
+    tls:
+      insecure: false
+
+service:
+  pipelines:
+    metrics:
+      receivers: [jmx]
+      processors: [resourcedetection, resource, batch]
+      exporters: [otlp]
