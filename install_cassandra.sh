@@ -34,10 +34,10 @@ sudo systemctl status cassandra
 echo "Configuring JMX for remote access..."
 
 # Backup the original cassandra-env.sh file
-sudo cp /etc/cassandra/conf/cassandra-env.sh /etc/cassandra/conf/cassandra-env.sh.backup
+sudo cp /etc/cassandra/cassandra-env.sh /etc/cassandra/cassandra-env.sh.backup
 
 # Modify the cassandra-env.sh file to enable remote JMX access
-sudo sed -i 's/LOCAL_JMX=yes/LOCAL_JMX=no/g' /etc/cassandra/conf/cassandra-env.sh
+sudo sed -i 's/LOCAL_JMX=yes/LOCAL_JMX=no/g' /etc/cassandra/cassandra-env.sh
 
 # Create JMX password file
 echo "Creating JMX password file..."
