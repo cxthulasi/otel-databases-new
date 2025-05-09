@@ -1,0 +1,343 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template to create an EC2 instance with EMR setup and OpenTelemetry Collector'
+
+Parameters:
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: Must be the name of an existing EC2 KeyPair
+
+  InstanceType:
+    Description: EC2 instance type
+    Type: String
+    Default: m5.xlarge
+    AllowedValues:
+      - m5.xlarge
+      - m5.2xlarge
+      - m5.4xlarge
+    ConstraintDescription: Must be a valid EC2 instance type
+
+  CoralogixApiKey:
+    Description: Coralogix API Key
+    Type: String
+    NoEcho: true
+
+  CoralogixDomain:
+    Description: Coralogix Domain
+    Type: String
+    Default: coralogix.com
+    AllowedValues:
+      - coralogix.com
+      - coralogix.us
+      - eu2.coralogix.com
+      - coralogix.in
+    ConstraintDescription: Must be a valid Coralogix domain
+
+Resources:
+  EMRSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EMR EC2 instance
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8088
+          ToPort: 8088
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 18080
+          ToPort: 18080
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8042
+          ToPort: 8042
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 4040
+          ToPort: 4040
+          CidrIp: 0.0.0.0/0
+
+  EMRInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: !Ref InstanceType
+      SecurityGroups:
+        - !Ref EMRSecurityGroup
+      KeyName: !Ref KeyName
+      ImageId: ami-0c7217cdde317cfec  # Amazon Linux 2 AMI (HVM), SSD Volume Type (us-east-1)
+      BlockDeviceMappings:
+        - DeviceName: /dev/xvda
+          Ebs:
+            VolumeSize: 100
+            VolumeType: gp2
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          
+          # Update system packages
+          yum update -y
+          yum install -y amazon-linux-extras
+          amazon-linux-extras install -y java-openjdk11
+          yum install -y python3 python3-pip jq wget git htop
+          
+          # Install AWS CLI
+          pip3 install --upgrade awscli
+          
+          # Set up EMR on EC2
+          echo "Setting up EMR on EC2..."
+          
+          # Install Hadoop
+          cd /opt
+          wget https://downloads.apache.org/hadoop/common/hadoop-3.3.4/hadoop-3.3.4.tar.gz
+          tar -xzf hadoop-3.3.4.tar.gz
+          ln -s hadoop-3.3.4 hadoop
+          rm hadoop-3.3.4.tar.gz
+          
+          # Set Hadoop environment variables
+          cat > /etc/profile.d/hadoop.sh << 'EOL'
+          export HADOOP_HOME=/opt/hadoop
+          export HADOOP_CONF_DIR=$HADOOP_HOME/etc/hadoop
+          export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin
+          EOL
+          
+          source /etc/profile.d/hadoop.sh
+          
+          # Install Spark
+          cd /opt
+          wget https://downloads.apache.org/spark/spark-3.3.2/spark-3.3.2-bin-hadoop3.tgz
+          tar -xzf spark-3.3.2-bin-hadoop3.tgz
+          ln -s spark-3.3.2-bin-hadoop3 spark
+          rm spark-3.3.2-bin-hadoop3.tgz
+          
+          # Set Spark environment variables
+          cat > /etc/profile.d/spark.sh << 'EOL'
+          export SPARK_HOME=/opt/spark
+          export PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
+          export PYSPARK_PYTHON=/usr/bin/python3
+          EOL
+          
+          source /etc/profile.d/spark.sh
+          
+          # Create directory for sample workloads and metrics
+          mkdir -p /opt/emr-samples
+          
+          # Create a sample PySpark job that generates custom metrics
+          cat > /opt/emr-samples/sample_job.py << 'EOL'
+          from pyspark.sql import SparkSession
+          import random
+          import time
+          import json
+          import os
+          from datetime import datetime
+          
+          # Initialize Spark session
+          spark = SparkSession.builder \
+              .appName("EMR Sample Job") \
+              .config("spark.metrics.conf", "/opt/spark/conf/metrics.properties") \
+              .getOrCreate()
+          
+          # Function to generate random data
+          def generate_data(num_records):
+              data = []
+              for i in range(num_records):
+                  data.append((i, random.randint(1, 100), random.random() * 1000))
+              return data
+          
+          # Create a metrics directory
+          os.makedirs("/opt/emr-samples/metrics", exist_ok=True)
+          
+          # Function to log custom metrics
+          def log_custom_metric(metric_name, value, tags=None):
+              if tags is None:
+                  tags = {}
+              
+              metric = {
+                  "name": metric_name,
+                  "value": value,
+                  "timestamp": int(time.time() * 1000),
+                  "tags": tags
+              }
+              
+              with open(f"/opt/emr-samples/metrics/custom_metrics.json", "a") as f:
+                  f.write(json.dumps(metric) + "\n")
+              
+              print(f"Logged metric: {metric_name} = {value}")
+          
+          # Main processing loop
+          for iteration in range(10):
+              print(f"Starting iteration {iteration}")
+              
+              # Generate random data
+              num_records = random.randint(10000, 50000)
+              data = generate_data(num_records)
+              
+              # Create DataFrame
+              df = spark.createDataFrame(data, ["id", "value1", "value2"])
+              
+              # Perform some transformations
+              start_time = time.time()
+              result = df.groupBy("value1").sum("value2")
+              count = result.count()
+              processing_time = time.time() - start_time
+              
+              # Log custom metrics
+              log_custom_metric("emr.records.processed", num_records, {"iteration": iteration})
+              log_custom_metric("emr.processing.time", processing_time, {"iteration": iteration})
+              log_custom_metric("emr.result.count", count, {"iteration": iteration})
+              
+              # Sleep between iterations
+              time.sleep(5)
+          
+          spark.stop()
+          EOL
+          
+          # Configure Spark metrics
+          mkdir -p /opt/spark/conf
+          cat > /opt/spark/conf/metrics.properties << 'EOL'
+          *.sink.jmx.class=org.apache.spark.metrics.sink.JmxSink
+          master.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+          worker.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+          driver.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+          executor.source.jvm.class=org.apache.spark.metrics.source.JvmSource
+          EOL
+          
+          # Create a script to run the sample job
+          cat > /opt/emr-samples/run_sample_job.sh << 'EOL'
+          #!/bin/bash
+          
+          # Start Spark master
+          /opt/spark/sbin/start-master.sh
+          
+          # Start Spark worker
+          /opt/spark/sbin/start-worker.sh spark://$(hostname):7077
+          
+          # Run the sample PySpark job
+          /opt/spark/bin/spark-submit \
+            --master spark://$(hostname):7077 \
+            --conf "spark.metrics.conf=/opt/spark/conf/metrics.properties" \
+            /opt/emr-samples/sample_job.py
+          EOL
+          
+          chmod +x /opt/emr-samples/run_sample_job.sh
+          
+          # Install and configure OpenTelemetry Collector
+          mkdir -p /opt/otelcol-contrib
+          cd /opt/otelcol-contrib
+          
+          # Download OpenTelemetry Collector Contrib
+          OTEL_VERSION="0.83.0"
+          wget -q https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_linux_amd64.tar.gz
+          tar -xzf otelcol-contrib_${OTEL_VERSION}_linux_amd64.tar.gz
+          
+          # Create configuration file for OpenTelemetry Collector
+          cat > /opt/otelcol-contrib/config.yaml << EOL
+          receivers:
+            jmx:
+              jar_path: /opt/otelcol-contrib/opentelemetry-java-contrib-jmx-metrics.jar
+              endpoint: localhost:7199
+              target_system: jvm,spark
+              collection_interval: 60s
+            
+            filelog:
+              include:
+                - /opt/emr-samples/metrics/custom_metrics.json
+              start_at: beginning
+              include_file_path: true
+              operators:
+                - type: json_parser
+            
+            prometheus:
+              config:
+                scrape_configs:
+                  - job_name: 'spark'
+                    scrape_interval: 15s
+                    static_configs:
+                      - targets: ['localhost:7077', 'localhost:8080', 'localhost:4040']
+          
+          processors:
+            batch:
+              send_batch_size: 1024
+              send_batch_max_size: 2048
+              timeout: 1s
+          
+            resourcedetection:
+              detectors: [system, env]
+              system:
+                hostname_sources: [os]
+          
+            resource:
+              attributes:
+                - key: service.name
+                  value: emr-metrics
+                  action: upsert
+          
+          exporters:
+            otlp:
+              endpoint: "ingress.${CoralogixDomain}:443"
+              headers:
+                Authorization: "Bearer ${CoralogixApiKey}"
+              tls:
+                insecure: false
+          
+          service:
+            pipelines:
+              metrics:
+                receivers: [jmx, prometheus]
+                processors: [resourcedetection, resource, batch]
+                exporters: [otlp]
+              logs:
+                receivers: [filelog]
+                processors: [resourcedetection, resource, batch]
+                exporters: [otlp]
+          EOL
+          
+          # Download OpenTelemetry Java JMX Metrics Gatherer
+          wget -q https://github.com/open-telemetry/opentelemetry-java-contrib/releases/download/v1.46.0/opentelemetry-jmx-metrics.jar -O opentelemetry-java-contrib-jmx-metrics.jar
+          
+          # Create systemd service file for OpenTelemetry Collector
+          cat > /etc/systemd/system/otelcol-contrib.service << 'EOL'
+          [Unit]
+          Description=OpenTelemetry Collector Contrib
+          After=network.target
+          
+          [Service]
+          ExecStart=/opt/otelcol-contrib/otelcol-contrib --config=/opt/otelcol-contrib/config.yaml
+          Restart=always
+          RestartSec=5
+          User=root
+          Group=root
+          
+          [Install]
+          WantedBy=multi-user.target
+          EOL
+          
+          # Reload systemd daemon
+          systemctl daemon-reload
+          
+          # Start OpenTelemetry Collector
+          systemctl start otelcol-contrib
+          
+          # Enable OpenTelemetry Collector to start on boot
+          systemctl enable otelcol-contrib
+          
+          # Run the sample job
+          /opt/emr-samples/run_sample_job.sh &
+          
+          # Signal completion
+          echo "EMR setup completed successfully!"
+
+Outputs:
+  InstanceId:
+    Description: ID of the EC2 instance
+    Value: !Ref EMRInstance
+  
+  PublicDNS:
+    Description: Public DNS name of the EC2 instance
+    Value: !GetAtt EMRInstance.PublicDnsName
+  
+  PublicIP:
+    Description: Public IP address of the EC2 instance
+    Value: !GetAtt EMRInstance.PublicIp
