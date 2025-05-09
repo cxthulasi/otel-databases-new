@@ -44,29 +44,32 @@ receivers:
     collection_interval: 60s
     username: cassandra
     password: cassandra
-    properties:
-      otel.resource.attributes: endpoint=localhost:7199
 
 processors:
   batch:
     send_batch_size: 1024
     send_batch_max_size: 2048
     timeout: 1s
+
   resourcedetection:
     detectors: [system]
     system:
       hostname_sources: [os]
+
   resource:
     attributes:
       - key: service.name
         value: cassandra
         action: upsert
+      - key: endpoint
+        value: localhost:7199
+        action: insert
 
 exporters:
   otlp:
-    endpoint: "ingress.${CORALOGIX_DOMAIN}:443"
+    endpoint: "ingress.coralogix.in:443"
     headers:
-      Authorization: "Bearer ${CORALOGIX_API_KEY}"
+      Authorization: "Bearer cxtp_AIvMKUfXU9eMTy17b3gTkHh2WvLRJv"
     tls:
       insecure: false
 
