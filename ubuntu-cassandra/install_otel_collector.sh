@@ -69,7 +69,7 @@ exporters:
   otlp:
     endpoint: "ingress.coralogix.in:443"
     headers:
-      Authorization: "Bearer cxtp_AIvMKUfXU9eMTy17b3gTkHh2WvLRJv"
+      Authorization: "Bearer XYZ"
     tls:
       insecure: false
 
