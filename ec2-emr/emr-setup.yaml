@@ -275,23 +275,25 @@ Resources:
                   action: upsert
           
           exporters:
-            otlp:
-              endpoint: "ingress.${CoralogixDomain}:443"
-              headers:
-                Authorization: "Bearer ${CoralogixApiKey}"
-              tls:
-                insecure: false
+            debug:
+              verbosity: detailed
+            coralogix:
+              domain: "coralogix.in"
+              private_key: "cxtp_Nb8SaWBuK9odW1fke9eO6eHnVTapzU"
+              application_name: "DefaultApplicationName"
+              subsystem_name: "DefaultSubsystemName"
+              timeout: 30s
           
           service:
             pipelines:
               metrics:
                 receivers: [jmx, prometheus]
                 processors: [resourcedetection, resource, batch]
-                exporters: [otlp]
+                exporters: [coralogix]
               logs:
                 receivers: [filelog]
                 processors: [resourcedetection, resource, batch]
-                exporters: [otlp]
+                exporters: [coralogix]
           EOL
           
           # Download OpenTelemetry Java JMX Metrics Gatherer
