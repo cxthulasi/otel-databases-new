@@ -31,7 +31,7 @@ sudo tar -xzf otelcol-contrib_${OTEL_VERSION}_linux_amd64.tar.gz
 
 # Download OpenTelemetry Java JMX Metrics Gatherer
 echo "Downloading OpenTelemetry Java JMX Metrics Gatherer..."
-wget -q https://github.com/open-telemetry/opentelemetry-java-contrib/releases/download/v1.46.0/opentelemetry-jmx-metrics.jar -O opentelemetry-java-contrib-jmx-metrics.jar
+wget -q https://github.com/open-telemetry/opentelemetry-java-contrib/releases/download/v1.24.0/opentelemetry-jmx-metrics.jar -O opentelemetry-java-contrib-jmx-metrics.jar
 
 # Create configuration file for OpenTelemetry Collector
 echo "Creating configuration file for OpenTelemetry Collector..."
