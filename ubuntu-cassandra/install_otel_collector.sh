@@ -22,7 +22,7 @@ cd /opt/otelcol-contrib
 
 # Download OpenTelemetry Collector Contrib
 echo "Downloading OpenTelemetry Collector Contrib..."
-OTEL_VERSION="0.83.0"
+OTEL_VERSION="0.115.0"
 wget -q https://github.com/open-telemetry/opentelemetry-collector-releases/releases/download/v${OTEL_VERSION}/otelcol-contrib_${OTEL_VERSION}_linux_amd64.tar.gz
 
 # Extract the archive
